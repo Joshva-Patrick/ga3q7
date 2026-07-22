@@ -3,20 +3,14 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import json
 
-# Load environment variables
+# Load .env
 load_dotenv()
 
-# Read Groq API key
-api_key = os.getenv("GROQ_API_KEY")
-
-if not api_key:
-    raise Exception("GROQ_API_KEY not found. Create a .env file.")
-
-# Groq Client
 client = OpenAI(
-    api_key=api_key,
-    base_url="https://api.groq.com/openai/v1"
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1",
 )
 
 app = FastAPI()
@@ -29,10 +23,24 @@ class Problem(BaseModel):
 
 @app.post("/")
 def solve(data: Problem):
+
     prompt = f"""
 Solve the following word problem carefully.
-Return ONLY the final numerical answer.
-Do not include any explanation.
+
+Return ONLY a valid JSON object.
+
+The JSON must contain EXACTLY these two keys:
+
+{{
+    "reasoning": "Brief step-by-step reasoning",
+    "answer": number
+}}
+
+Rules:
+- No markdown
+- No ```json
+- No extra keys
+- Answer must be numeric whenever possible
 
 Problem:
 {data.problem}
@@ -41,21 +49,22 @@ Problem:
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         temperature=0,
+        response_format={"type": "json_object"},
         messages=[
             {
                 "role": "system",
-                "content": "You are an expert mathematical reasoning assistant."
+                "content": "You are an expert mathematical reasoning assistant. Always return valid JSON."
             },
             {
                 "role": "user",
                 "content": prompt
             }
-        ]
+        ],
     )
 
-    answer = response.choices[0].message.content.strip()
+    result = json.loads(response.choices[0].message.content)
 
     return {
-        "problem_id": data.problem_id,
-        "answer": answer
+        "reasoning": result["reasoning"],
+        "answer": result["answer"]
     }
